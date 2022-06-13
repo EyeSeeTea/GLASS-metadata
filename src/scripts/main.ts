@@ -3,12 +3,13 @@
 import fs from "fs";
 import { D2Api } from "@eyeseetea/d2-api/2.34";
 import { config } from "dotenv-flow";
-import { google, sheets_v4 } from "googleapis";
+import { google } from "googleapis";
 import _ from "lodash";
 import { MetadataItem } from "../domain/entities/MetadataItem";
 import { Sheet } from "../domain/entities/Sheet";
 import { getUid } from "../utils/uid";
 import { buildMetadata } from "../utils/buildMetadata";
+import { getMetadata } from "../utils/getMetadata";
 
 async function main() {
     config(); // fill variable process.env from ".env.*" files
@@ -21,22 +22,35 @@ async function main() {
     const { data } = await spreadsheets.get({ spreadsheetId: env.GOOGLE_SHEET_ID, includeGridData: true });
     const sheets = data.sheets?.filter(sheet => sheet.properties?.title != "DHIS2").map(loadSheet) ?? [];
 
-    log("Converting to metadata...");
-    const metadata = buildMetadata(sheets, env.DEFAULT_CATEGORY_COMBO_ID ?? "");
-
-    log("Writing it to out.json ...");
-    fs.writeFileSync("out.json", JSON.stringify(metadata, null, 4));
-
-    log(`Updating it on server at ${env.DHIS2_BASE_URL} ...`);
     const api = new D2Api({
         baseUrl: env.DHIS2_BASE_URL,
         auth: { username: env.DHIS2_USERNAME ?? "", password: env.DHIS2_PASSWORD ?? "" },
     });
-    await uploadMetadata(api, metadata);
 
-    if (env.UPDATE_CATEGORY_OPTION_COMBOS === "true") {
-        log("Updating category option combos...");
-        await api.maintenance.categoryOptionComboUpdate().getData();
+    if (env.BUILD_METADATA === "true") {
+        log("Converting to metadata...");
+        const metadata = buildMetadata(sheets, env.DEFAULT_CATEGORY_COMBO_ID ?? "");
+
+        log("Writing it to out.json ...");
+        fs.writeFileSync("out.json", JSON.stringify(metadata, null, 4));
+
+        if (env.UPDATE_SERVER === "true") {
+            log(`Updating it on server at ${env.DHIS2_BASE_URL} ...`);
+
+            await uploadMetadata(api, metadata);
+
+            if (env.UPDATE_CATEGORY_OPTION_COMBOS === "true") {
+                log("Updating category option combos...");
+                await api.maintenance.categoryOptionComboUpdate().getData();
+            }
+
+        }
+
+        if (env.PULL_METADATA === "true") {
+            pullMetadata(api, sheets);
+        }
+    } else if (env.PULL_METADATA === "true") {
+        pullMetadata(api, sheets);
     }
 }
 
@@ -68,7 +82,10 @@ function loadSheet(sheet: any): Sheet {
 function makeSeed(item: MetadataItem, sheetName: string) {
     const seed0 = `${sheetName}-${item.name}`; // the seed will be at least the page and the item's name
     if (sheetName === "options") return `${seed0}-${item.optionSet}`;
-    if (sheetName === "programStageSections") return `${seed0}-${item.programStage}-${item.sortOrder}`;
+    if (sheetName === "programs") return `${seed0}-${item.program}`;
+    if (sheetName === "programSections") return `${seed0}-${item.program}`;
+    if (sheetName === "programStages") return `${seed0}-${item.program}`;
+    if (sheetName === "programStageSections") return `${seed0}-${item.programStage}`;
     if (sheetName === "programStageDataElements") return `${seed0}-${item.program}-${item.programStage}`;
     return seed0;
 }
@@ -89,6 +106,19 @@ async function uploadMetadata(api: D2Api, metadata: any) {
         ) ?? [];
 
     console.log([result?.status, ...messages].join("\n"));
+}
+
+function pullMetadata(api: D2Api, sheets: Sheet[]) {
+    const log = console.log, env = process.env;
+    let uidOnly;
+    if (env.PULL_UID_ONLY === "true") {
+        log("Pulling UIDs ...");
+        uidOnly = true;
+    } else {
+        log("Pulling metadata ...");
+        uidOnly = false;
+    }
+    getMetadata(api, sheets, uidOnly);
 }
 
 main();
