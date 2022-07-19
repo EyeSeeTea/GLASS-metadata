@@ -18,10 +18,13 @@ DHIS2_BASE_URL=...
 DHIS2_USERNAME=...
 DHIS2_PASSWORD=...
 UPDATE_CATEGORY_OPTION_COMBOS=false # true or false
+UPDATE_SERVER=false # true or false
+PULL_METADATA_CSV_PATH=...
 ```
 
 The first time, we have to run `yarn install` to install all the dependencies.
-After that, you can just run `yarn start` to generate and update the metadata.
+After that, you can run `yarn update-server` to generate and update the metadata
+or `yarn download-ids` to get the metadata IDs.
 
 ## Description
 
@@ -36,9 +39,14 @@ The script will generate a json file containing all the
 information that dhis2 needs to update the metadata, and also
 connect to a dhis2 server to update the metadata directly.
 
+If you need to generate only the json set the `UPDATE_SERVER` option to `false`.
+
 If you want to manually upload the generated json file to a dhis2 instance,
 use its `Import/Export` app, go to `Metadata import` and use `Merge` as
 the "import strategy".
+
+The `PULL_METADATA_CSV_PATH` variable will store the path where the CSV files will
+be written. If empty, the current working directory will be used.
 
 If dhis2 fails to automatically update all the category option
 combinations (which happens occassionally and is a dhis2 issue), you

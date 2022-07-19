@@ -1,16 +1,16 @@
-// Main script.
+// Upload Server script.
 
 import fs from "fs";
 import { D2Api } from "@eyeseetea/d2-api/2.34";
 import { config } from "dotenv-flow";
-import { google, sheets_v4 } from "googleapis";
+import { google } from "googleapis";
 import _ from "lodash";
 import { MetadataItem } from "../domain/entities/MetadataItem";
 import { Sheet } from "../domain/entities/Sheet";
 import { getUid } from "../utils/uid";
 import { buildMetadata } from "../utils/buildMetadata";
 
-async function main() {
+async function uploadServer() {
     config(); // fill variable process.env from ".env.*" files
     const log = console.log,
         env = process.env; // shortcuts
@@ -27,16 +27,20 @@ async function main() {
     log("Writing it to out.json ...");
     fs.writeFileSync("out.json", JSON.stringify(metadata, null, 4));
 
-    log(`Updating it on server at ${env.DHIS2_BASE_URL} ...`);
-    const api = new D2Api({
-        baseUrl: env.DHIS2_BASE_URL,
-        auth: { username: env.DHIS2_USERNAME ?? "", password: env.DHIS2_PASSWORD ?? "" },
-    });
-    await uploadMetadata(api, metadata);
+    if (env.UPDATE_SERVER === "true") {
+        log(`Updating it on server at ${env.DHIS2_BASE_URL} ...`);
 
-    if (env.UPDATE_CATEGORY_OPTION_COMBOS === "true") {
-        log("Updating category option combos...");
-        await api.maintenance.categoryOptionComboUpdate().getData();
+        const api = new D2Api({
+            baseUrl: env.DHIS2_BASE_URL,
+            auth: { username: env.DHIS2_USERNAME ?? "", password: env.DHIS2_PASSWORD ?? "" },
+        });
+
+        await uploadMetadata(api, metadata);
+
+        if (env.UPDATE_CATEGORY_OPTION_COMBOS === "true") {
+            log("Updating category option combos...");
+            await api.maintenance.categoryOptionComboUpdate().getData();
+        }
     }
 }
 
@@ -68,7 +72,10 @@ function loadSheet(sheet: any): Sheet {
 function makeSeed(item: MetadataItem, sheetName: string) {
     const seed0 = `${sheetName}-${item.name}`; // the seed will be at least the page and the item's name
     if (sheetName === "options") return `${seed0}-${item.optionSet}`;
-    if (sheetName === "programStageSections") return `${seed0}-${item.programStage}-${item.sortOrder}`;
+    if (sheetName === "programStages") return `${seed0}-${item.program}`;
+    if (sheetName === "programSections") return `${seed0}-${item.program}`;
+    if (sheetName === "programTrackedEntityAttributes") return `${seed0}-${item.program}`;
+    if (sheetName === "programStageSections") return `${seed0}-${item.program}-${item.programStage}`;
     if (sheetName === "programStageDataElements") return `${seed0}-${item.program}-${item.programStage}`;
     return seed0;
 }
@@ -91,4 +98,4 @@ async function uploadMetadata(api: D2Api, metadata: any) {
     console.log([result?.status, ...messages].join("\n"));
 }
 
-main();
+uploadServer();

@@ -6,8 +6,9 @@
     "author": "EyeSeeTea team",
     "scripts": {
         "prettify": "prettier \"./**/*.{js,jsx,json,css,ts,tsx}\" --write",
-        "build": "ncc build src/scripts/main.ts -m && cp dist/index.js $npm_package_name.js",
-        "start": "ts-node -P tsconfig.json src/scripts/main.ts"
+        "build": "ncc build src/scripts/upload-server.ts -m && cp dist/index.js $npm_package_name.js",
+        "start": "ts-node -P tsconfig.json src/scripts/upload-server.ts",
+        "download-ids": "ts-node -P tsconfig.json src/scripts/download-ids.ts"
     },
     "devDependencies": {
         "@types/dotenv-flow": "3.2.0",
