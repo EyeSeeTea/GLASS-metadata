@@ -27,16 +27,18 @@ async function main() {
     log("Writing it to out.json ...");
     fs.writeFileSync("out.json", JSON.stringify(metadata, null, 4));
 
-    log(`Updating it on server at ${env.DHIS2_BASE_URL} ...`);
-    const api = new D2Api({
-        baseUrl: env.DHIS2_BASE_URL,
-        auth: { username: env.DHIS2_USERNAME ?? "", password: env.DHIS2_PASSWORD ?? "" },
-    });
-    await uploadMetadata(api, metadata);
+    if (env.UPDATE_SERVER === "true") {
+        log(`Updating it on server at ${env.DHIS2_BASE_URL} ...`);
+        const api = new D2Api({
+            baseUrl: env.DHIS2_BASE_URL,
+            auth: { username: env.DHIS2_USERNAME ?? "", password: env.DHIS2_PASSWORD ?? "" },
+        });
+        await uploadMetadata(api, metadata);
 
-    if (env.UPDATE_CATEGORY_OPTION_COMBOS === "true") {
-        log("Updating category option combos...");
-        await api.maintenance.categoryOptionComboUpdate().getData();
+        if (env.UPDATE_CATEGORY_OPTION_COMBOS === "true") {
+            log("Updating category option combos...");
+            await api.maintenance.categoryOptionComboUpdate().getData();
+        }
     }
 }
 
@@ -68,7 +70,11 @@ function loadSheet(sheet: any): Sheet {
 function makeSeed(item: MetadataItem, sheetName: string) {
     const seed0 = `${sheetName}-${item.name}`; // the seed will be at least the page and the item's name
     if (sheetName === "options") return `${seed0}-${item.optionSet}`;
-    if (sheetName === "programStageSections") return `${seed0}-${item.programStage}-${item.sortOrder}`;
+    if (sheetName === "legends") return `${seed0}-${item.legendSet}`;
+    if (sheetName === "programStages") return `${seed0}-${item.program}`;
+    if (sheetName === "programSections") return `${seed0}-${item.program}`;
+    if (sheetName === "programTrackedEntityAttributes") return `${seed0}-${item.program}`;
+    if (sheetName === "programStageSections") return `${seed0}-${item.program}-${item.programStage}`;
     if (sheetName === "programStageDataElements") return `${seed0}-${item.program}-${item.programStage}`;
     return seed0;
 }

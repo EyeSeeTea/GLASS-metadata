@@ -18,6 +18,7 @@ DHIS2_BASE_URL=...
 DHIS2_USERNAME=...
 DHIS2_PASSWORD=...
 UPDATE_CATEGORY_OPTION_COMBOS=false # true or false
+UPDATE_SERVER=false # true or false
 ```
 
 The first time, we have to run `yarn install` to install all the dependencies.
@@ -35,6 +36,8 @@ just run this script.
 The script will generate a json file containing all the
 information that dhis2 needs to update the metadata, and also
 connect to a dhis2 server to update the metadata directly.
+
+If you need to generate only the json set the `UPDATE_SERVER` option to `false`.
 
 If you want to manually upload the generated json file to a dhis2 instance,
 use its `Import/Export` app, go to `Metadata import` and use `Merge` as

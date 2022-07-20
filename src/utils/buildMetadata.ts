@@ -15,12 +15,7 @@ export function buildMetadata(sheets: Sheet[], defaultCC: string) {
         sheetCategories = get("categories"),
         sheetOptionSets = get("optionSets"),
         sheetOptions = get("options"),
-        sheetTrackedEntityAttributes = get("trackedEntityAttributes"),
-        sheetTrackedEntityTypes = get("trackedEntityTypes"),
-        sheetProgramDataElements = get("programDataElements"),
-        sheetPrograms = get("programs"),
-        sheetProgramStages = get("programStages"),
-        sheetProgramStageSections = get("programStageSections");
+        sheetProgramDataElements = get("programDataElements");
 
     const options = _(sheetOptions)
         .map(option => {
@@ -84,16 +79,6 @@ export function buildMetadata(sheets: Sheet[], defaultCC: string) {
         return { ...dataSet, dataSetElements, categoryCombo: { id: categoryCombo } };
     });
 
-    /** const programs = sheetDataSets.map(program => {
-        const programStages = sheetProgramStages
-            .filter(({ programStages }) => {
-                const programStage = sheetProgramStages.find(({ name }) => name === programStages);
-                return programStage?.program === program.name;
-            })
-
-        return { ...program, programStages };
-    }); */
-
     const categories = sheetCategories.map(category => {
         const categoryOptions = sheetCategoryOptions
             .filter(option => option.category === category.name)
@@ -118,33 +103,6 @@ export function buildMetadata(sheets: Sheet[], defaultCC: string) {
 
     const categoryOptions = _.uniqBy(sheetCategoryOptions, item => item.id);
 
-    const trackedEntityAttributes: any[] = sheetTrackedEntityAttributes.map(attribute => {
-        const optionSet = sheetOptionSets.find(({ name }) => name === attribute.optionSet)?.id;
-
-        return {
-            ...attribute,
-            optionSet: optionSet ? { id: optionSet } : undefined,
-        };
-    });
-
-    const trackedEntityTypes = sheetTrackedEntityTypes.map(type => {
-        const trackedEntityTypeAttributes = trackedEntityAttributes
-            .filter(({ trackedEntityType }) => trackedEntityType === type.name)
-            .map(({ id, name, searchable, mandatory, unique, valueType, displayInList, optionSet }) => ({
-                value: id,
-                text: name,
-                searchable,
-                mandatory,
-                unique,
-                valueType,
-                displayInList,
-                trackedEntityAttribute: { id },
-                optionSet,
-            }));
-
-        return { ...type, trackedEntityTypeAttributes };
-    });
-
     const programDataElements = sheetProgramDataElements.map(dataElement => {
         const optionSet = sheetOptionSets.find(({ name }) => name === dataElement.optionSet)?.id;
 
@@ -164,13 +122,294 @@ export function buildMetadata(sheets: Sheet[], defaultCC: string) {
         categoryCombos,
         categoryOptions,
         optionSets,
-        trackedEntityAttributes,
-        trackedEntityTypes,
-        //programs,
+        trackedEntityAttributes: buildTrackedEntityAttributes(sheets),
+        trackedEntityTypes: buildTrackedEntityTypes(sheets),
+        programSections: buildprogramSections(sheets),
+        programs: buildPrograms(sheets),
+        programStages: buildProgramStages(sheets),
+        programStageSections: buildProgramStageSections(sheets),
         programRules: buildProgramRules(sheets),
         programRuleActions: buildProgramRuleActions(sheets),
         programRuleVariables: buildProgramRuleVariables(sheets),
+        legendSets: buildLegendSets(sheets),
     };
+}
+
+function buildPrograms(sheets: Sheet[]) {
+    const get = (name: string) => getItems(sheets, name);
+
+    const programs = get("programs");
+    const pSections = get("programSections");
+    const pStages = get("programStages");
+    const trackedEntityTypes = get("trackedEntityTypes");
+    const categoryCombos = get("categoryCombos");
+    const programTeas = get("programTrackedEntityAttributes");
+    const trackedEntityAttributes = get("trackedEntityAttributes");
+
+    return programs.map(program => {
+        let data = { ...program } as MetadataItem;
+
+        const trackedEntityType = {
+            id: getByName(trackedEntityTypes, program.trackedEntityType)?.id
+        };
+
+        const programStages = pStages.filter((pStageToFilter) => {
+            return pStageToFilter.program === program.name;
+        }).map(programStage => ({ id: programStage.id }));
+
+        replaceById(data, "categoryCombo", categoryCombos);
+
+        if (trackedEntityType.id) {
+            // WITH_REGISTRATION == Tracker Program
+            const programType = "WITH_REGISTRATION";
+
+            replaceById(data, "relatedProgram", programs);
+
+            // Event Program Stages belong to programStageSections
+            const programSections = pSections.filter((pSectionToFilter) => {
+                return pSectionToFilter?.program === program.name;
+            }).map(programSection => ({ id: programSection.id }));
+
+            const programTrackedEntityAttributes = programTeas.filter(pTeasToFilter => {
+                return pTeasToFilter.program === program.name;
+            }).map(pTea => buildProgTEA(program, pTea, trackedEntityAttributes));
+            addSortOrder(programTrackedEntityAttributes);
+
+            return { ...data, programType, trackedEntityType, programStages, programSections, programTrackedEntityAttributes };
+        } else {
+            // WITHOUT_REGISTRATION == Event Program
+            const programType = "WITHOUT_REGISTRATION";
+            return { ...data, programType, programStages };
+        }
+    });
+}
+
+function buildprogramSections(sheets: Sheet[]) {
+    const get = (name: string) => getItems(sheets, name);
+
+    const programSections = _.cloneDeep(get("programSections"));
+    const programs = get("programs");
+    const teAttributes = get("trackedEntityAttributes");
+
+    const sectionsAttributes = get("programSectionsTrackedEntityAttributes").map(psTrackedEntityAttribute => {
+        const programSection = programSections.find(pSectionToFind => {
+            return pSectionToFind.name === psTrackedEntityAttribute.programSection &&
+                pSectionToFind.program === psTrackedEntityAttribute.program
+        })?.id;
+
+        const trackedEntityAttribute = getByName(teAttributes, psTrackedEntityAttribute.name)?.id;
+
+        return { programSection, trackedEntityAttribute }
+    });
+
+    return programSections.map(programSection => {
+        if (programSection.sortOrder === undefined) {
+            addSortOrder(programSections.filter((pSectionToFilter) => {
+                return pSectionToFilter.program === programSection.program;
+            }));
+        }
+
+        replaceById(programSection, "program", programs)
+
+        const renderType = addRenderType(programSection, "LISTING");
+
+        const trackedEntityAttributes = sectionsAttributes.filter((sectionsAttributeToFilter) => {
+            return sectionsAttributeToFilter?.programSection === programSection.id;
+        }).map(sectionsAttribute => ({ id: sectionsAttribute.trackedEntityAttribute }));
+
+        return { ...programSection, renderType, trackedEntityAttributes }
+    });
+}
+
+function buildProgramStages(sheets: Sheet[]) {
+    const get = (name: string) => getItems(sheets, name);
+
+    const programStages = get("programStages");
+    const programs = get("programs");
+    const psSections = get("programStageSections");
+    const psDataElements = get("programStageDataElements");
+    const programDataElements = get("programDataElements");
+
+    return programStages.map(programStage => {
+        const programStageSections = psSections.filter((psSectionToFilter) => {
+            return psSectionToFilter?.programStage === programStage.name &&
+                psSectionToFilter?.program === programStage.program;
+        }).map(psSection => ({ id: psSection.id }));
+
+        const programStageDataElements = psDataElements.filter((psDataElementToFilter) => {
+            return psDataElementToFilter?.program === programStage.program &&
+                psDataElementToFilter?.programStage === programStage.name;
+        }).map((data, index) => ({
+            id: data.id,
+            programStage: {
+                id: programStage.id
+            },
+            sortOrder: index,
+            compulsory: data.compulsory,
+            allowProvidedElsewhere: data.allowProvidedElsewhere,
+            displayInReports: data.displayInReports,
+            allowFutureDate: data.allowFutureDate,
+            skipSynchronization: data.skipSynchronization,
+            renderType: addRenderType(data, "DEFAULT"),
+            dataElement: {
+                id: getByName(programDataElements, data.name)?.id
+            },
+        }));
+
+        replaceById(programStage, "program", programs);
+
+        return { ...programStage, programStageDataElements, programStageSections }
+    });
+}
+
+function buildProgramStageSections(sheets: Sheet[]) {
+    const get = (name: string) => getItems(sheets, name);
+
+    const programStageSections = _.cloneDeep(get("programStageSections"));
+    const programStages = get("programStages");
+    const pssDataElements = get("programStageSectionsDataElements");
+    const programDataElements = get("programDataElements");
+
+    const programStageSectionsDataElements = pssDataElements.map(pssDataElement => {
+        const programStageSectionId = programStageSections.find(
+            psSectionToFind => {
+                return psSectionToFind.name === pssDataElement.programStageSection &&
+                    psSectionToFind.programStage === pssDataElement.programStage &&
+                    psSectionToFind.program === pssDataElement.program
+            }
+        )?.id;
+
+        const dataElementId = getByName(programDataElements, pssDataElement.name)?.id;
+
+        return { programStageSectionId, dataElementId }
+    });
+
+    return programStageSections.map(programStageSection => {
+        if (typeof programStageSection.sortOrder === 'undefined') {
+            addSortOrder(programStageSections.filter((psSectionToFilter) => {
+                return psSectionToFilter.program === programStageSection.program &&
+                    psSectionToFilter.programStage === programStageSection.programStage
+            }));
+        }
+
+        replaceById(programStageSection, "programStage", programStages);
+
+        const renderType = addRenderType(programStageSection, "LISTING");
+
+        const dataElements = programStageSectionsDataElements.filter((pssDataElementToFilter) => {
+            return pssDataElementToFilter?.programStageSectionId === programStageSection?.id;
+        }).map(pssDataElement => ({ id: pssDataElement.dataElementId }));
+
+        delete programStageSection.program;
+
+        return { ...programStageSection, renderType, dataElements }
+    });
+}
+
+function buildProgTEA(program: MetadataItem, pTea: MetadataItem, trackedEntityAttributes: MetadataItem[]) {
+    const tea = getByName(trackedEntityAttributes, pTea.name);
+    return {
+        id: pTea.id,
+        program: { id: program.id },
+        displayName: `${program.name} ${pTea.name}`,
+        valueType: pTea.valueType,
+        displayInList: pTea.displayInList,
+        mandatory: pTea.mandatory,
+        allowFutureDate: pTea.allowFutureDate,
+        searchable: pTea.searchable,
+        renderType: addRenderType(pTea, "DEFAULT"),
+        trackedEntityAttribute: {
+            id: tea.id,
+            displayName: tea.name,
+            valueType: tea.valueType,
+            unique: tea?.unique,
+        },
+    }
+}
+
+function buildLegendSets(sheets: Sheet[]) {
+    const get = (name: string) => getItems(sheets, name);
+
+    const legendSets = get("legendSets");
+    const legendsArray = get("legends");
+
+    return legendSets.map(legendSet => {
+        const legends = legendsArray.filter(legendToFilter => {
+            return legendToFilter.legendSet === legendSet.name;
+        }).map(legend => ({
+            id: legend.id,
+            name: legend.name,
+            startValue: legend.startValue,
+            endValue: legend.endValue,
+        }));
+
+        return { ...legendSet, legends }
+    });
+}
+
+function buildTrackedEntityAttributes(sheets: Sheet[]) {
+    const get = (name: string) => getItems(sheets, name);
+
+    const trackedEntityAttributes = get("trackedEntityAttributes");
+    const optionSets = get("optionSets");
+    const legendSetsArray = get("legendSets");
+    const teasLegends = get("trackedEntityAttributesLegends").map(teasLegend => {
+        let data = { ...teasLegend } as MetadataItem;
+        data.id = getByName(legendSetsArray, teasLegend.name).id;
+        return data;
+    })
+
+    return trackedEntityAttributes.map(trackedEntityAttribute => {
+        let data = { ...trackedEntityAttribute } as MetadataItem;
+
+        replaceById(data, "optionSet", optionSets);
+
+        const legendSets = teasLegends.filter(teasLegendToFilter => {
+            return teasLegendToFilter.trackedEntityAttribute === trackedEntityAttribute.name;
+        }).map(teasLegend => ({ id: teasLegend.id }));
+
+        return { ...data, legendSets }
+    });
+}
+
+function buildTrackedEntityTypes(sheets: Sheet[]) {
+    const get = (name: string) => getItems(sheets, name);
+
+    const trackedEntityTypes = get("trackedEntityTypes");
+    const trackedEntityAttributes = get("trackedEntityAttributes");
+    const teaAttributes = get("trackedEntityTypeAttributes");
+    const optionSets = get("optionSets");
+
+    return trackedEntityTypes.map(trackedEntityType => {
+        let data = { ...trackedEntityType } as MetadataItem;
+
+        const trackedEntityTypeAttributes = teaAttributes.filter(teaAttributeToFilter => {
+            return teaAttributeToFilter.trackedEntityType === trackedEntityType.name;
+        }).map(trackedEntityTypeAttribute => {
+            const displayName = trackedEntityTypeAttribute.name;
+            const trackedEntityAttribute = getByName(trackedEntityAttributes, displayName);
+            const optionSetId = getByName(optionSets, trackedEntityAttribute.optionSet)?.id;
+
+            return {
+                displayName,
+                text: displayName,
+                value: trackedEntityAttribute.id,
+                valueType: trackedEntityAttribute.valueType,
+                unique: trackedEntityAttribute?.unique,
+                displayInList: trackedEntityTypeAttribute.displayInList,
+                mandatory: trackedEntityTypeAttribute.mandatory,
+                searchable: trackedEntityTypeAttribute.searchable,
+                optionSet: optionSetId ? {
+                    id: optionSetId,
+                } : undefined,
+                trackedEntityAttribute: {
+                    id: trackedEntityAttribute.id,
+                }
+            };
+        });
+
+        return { ...data, trackedEntityTypeAttributes }
+    });
 }
 
 function buildProgramRules(sheets: Sheet[]) {
@@ -231,6 +470,26 @@ function buildProgramRuleVariables(sheets: Sheet[]) {
 
         return data;
     });
+}
+
+// Add sortOrder to filteredMetadataItems, these items belong to the same 'group'.
+// The idea is to use metadataItems.filter(filterFunction) as filteredMetadataItems.
+function addSortOrder(filteredMetadataItems: MetadataItem[]) {
+    filteredMetadataItems.forEach((item, index) => {
+        item.sortOrder = index;
+    });
+}
+
+// Adds renderType to a metadata object with a default fallback value
+function addRenderType(metadataItem: MetadataItem, defaultValue: string) {
+    const renderType = {
+        DESKTOP: { type: metadataItem.renderTypeDesktop ?? defaultValue },
+        MOBILE: { type: metadataItem.renderTypeMobile ?? defaultValue }
+    };
+    delete metadataItem.renderTypeDesktop;
+    delete metadataItem.renderTypeMobile;
+
+    return renderType;
 }
 
 // Return all the items (rows) from the sheet with the given name.
